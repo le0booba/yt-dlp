@@ -6,7 +6,6 @@ import telebot
 from telebot import types, apihelper
 from flask import Flask, request
 
-# --- Configuration ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
 
@@ -23,12 +22,10 @@ COOKIES_DIR = os.path.join(VOLUME_PATH, "user_cookies")
 WEBHOOK_URL_PATH = f"/{BOT_TOKEN}"
 WEBHOOK_URL = f"https://{APP_DOMAIN}{WEBHOOK_URL_PATH}"
 
-# --- Callback Data Prefixes ---
 CB_FORMAT = "format:"
 CB_COOKIE_PROMPT = "cookie:"
 CB_COOKIE_ACTION = "use_cookie:"
 
-# --- Initialization ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -36,7 +33,6 @@ app = Flask(__name__)
 bot = telebot.TeleBot(BOT_TOKEN)
 user_data = {}
 
-# --- Helper Functions ---
 def create_directories():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     os.makedirs(COOKIES_DIR, exist_ok=True)
@@ -52,7 +48,6 @@ def cleanup_files(filepath):
         except OSError as e:
             logger.error(f"Error removing file {filepath}: {e}")
 
-# --- Core Logic ---
 class VideoDownloader:
     def __init__(self, chat_id: int, message_id: int):
         self.chat_id = chat_id
@@ -122,7 +117,6 @@ def initiate_download_process(call, cookie_path=None):
     downloader = VideoDownloader(chat_id=msg.chat.id, message_id=msg.message_id)
     downloader.download(session['url'], session['format'], cookie_file=cookie_path)
 
-# --- Web Server and Webhooks ---
 @app.route(WEBHOOK_URL_PATH, methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -135,12 +129,11 @@ def webhook():
 def health_check():
     return "OK", 200
 
-# --- Telegram Bot Handlers ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     bot.reply_to(message, f"Hello, {message.from_user.first_name}!\n\nSend me a video link, and I will download it.")
 
-@bot.message_handler(func=lambda message: message.text and not message.text.startswith('/'))
+@bot.message_handler(func=lambda message: message.text and (message.text.startswith('http://') or message.text.startswith('https://')))
 def handle_link(message):
     user_data[message.from_user.id] = {'url': message.text}
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -223,7 +216,6 @@ def handle_cookie_file(message):
         logger.error(f"Error processing cookie file: {e}")
         bot.reply_to(message, "Failed to process the cookie file.")
 
-# --- Application Entry Point ---
 if __name__ == "__main__":
     create_directories()
     bot.remove_webhook()
