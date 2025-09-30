@@ -30,6 +30,7 @@ CB_COOKIE_ACTION = "use_cookie:"
 logging.basicConfig(
     level=logging.INFO,
     stream=sys.stdout
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
