@@ -5,6 +5,7 @@ import yt_dlp
 import telebot
 from telebot import types, apihelper
 from flask import Flask, request
+import sys
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
@@ -26,7 +27,9 @@ CB_FORMAT = "format:"
 CB_COOKIE_PROMPT = "cookie:"
 CB_COOKIE_ACTION = "use_cookie:"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
