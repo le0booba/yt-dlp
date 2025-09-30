@@ -97,6 +97,8 @@ class VideoDownloader:
 
     def download(self, url, option_key, cookie_file=None):
         option = DOWNLOAD_OPTIONS.get(option_key, DOWNLOAD_OPTIONS["max_quality"])
+
+        ffmpeg_location = os.path.abspath('bin')
         
         ydl_opts = {
             "format": option["format"],
@@ -105,6 +107,7 @@ class VideoDownloader:
             "progress_hooks": [self.progress_hook],
             "noprogress": True,
             "cookiefile": cookie_file if cookie_file and os.path.exists(cookie_file) else None,
+            "ffmpeg_location": ffmpeg_location,
         }
         
         if option.get("postprocessing") == "mp3":
