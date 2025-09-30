@@ -9,3 +9,4 @@ pycryptodomex
 pyTelegramBotAPI
 yt-dlp
 Flask
+gunicorn
