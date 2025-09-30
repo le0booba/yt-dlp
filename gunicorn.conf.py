@@ -1,3 +1,6 @@
+import os
+
+
 # Направляем логи доступа в stdout
 accesslog = "-"
 
