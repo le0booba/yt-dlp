@@ -5,8 +5,10 @@ import yt_dlp
 import telebot
 from telebot import types, apihelper
 from flask import Flask, request
-import sys
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import datetime, timedelta
 
+# --- Configuration ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
 
@@ -17,6 +19,7 @@ if not APP_DOMAIN:
 
 VOLUME_PATH = os.environ.get("VOLUME_PATH", "/data")
 TELEGRAM_FILE_LIMIT_MB = int(os.environ.get("TELEGRAM_FILE_LIMIT_MB", 49))
+COOKIE_LIFETIME_DAYS = 7
 DOWNLOAD_DIR = "downloads"
 COOKIES_DIR = os.path.join(VOLUME_PATH, "user_cookies")
 
@@ -27,16 +30,15 @@ CB_FORMAT = "format:"
 CB_COOKIE_PROMPT = "cookie:"
 CB_COOKIE_ACTION = "use_cookie:"
 
-logging.basicConfig(
-    level=logging.INFO,
-    stream=sys.stdout
-)
+# --- Initialization ---
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 bot = telebot.TeleBot(BOT_TOKEN)
 user_data = {}
 
+# --- Helper Functions ---
 def create_directories():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     os.makedirs(COOKIES_DIR, exist_ok=True)
@@ -52,6 +54,21 @@ def cleanup_files(filepath):
         except OSError as e:
             logger.error(f"Error removing file {filepath}: {e}")
 
+def cleanup_old_cookies():
+    logger.info("Running scheduled cookie cleanup task...")
+    cutoff = datetime.now() - timedelta(days=COOKIE_LIFETIME_DAYS)
+    try:
+        for filename in os.listdir(COOKIES_DIR):
+            file_path = os.path.join(COOKIES_DIR, filename)
+            if os.path.isfile(file_path):
+                file_mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                if file_mod_time < cutoff:
+                    os.remove(file_path)
+                    logger.info(f"Removed old cookie file: {filename}")
+    except Exception as e:
+        logger.error(f"Error during cookie cleanup: {e}")
+
+# --- Core Logic ---
 class VideoDownloader:
     def __init__(self, chat_id: int, message_id: int):
         self.chat_id = chat_id
@@ -121,6 +138,7 @@ def initiate_download_process(call, cookie_path=None):
     downloader = VideoDownloader(chat_id=msg.chat.id, message_id=msg.message_id)
     downloader.download(session['url'], session['format'], cookie_file=cookie_path)
 
+# --- Web Server and Webhooks ---
 @app.route(WEBHOOK_URL_PATH, methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -133,6 +151,7 @@ def webhook():
 def health_check():
     return "OK", 200
 
+# --- Telegram Bot Handlers ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     bot.reply_to(message, f"Hello, {message.from_user.first_name}!\n\nSend me a video link, and I will download it.")
@@ -220,11 +239,14 @@ def handle_cookie_file(message):
         logger.error(f"Error processing cookie file: {e}")
         bot.reply_to(message, "Failed to process the cookie file.")
 
-if __name__ == "__main__":
-    create_directories()
-    bot.remove_webhook()
-    time.sleep(0.5)
-    bot.set_webhook(url=WEBHOOK_URL)
-    logger.info(f"Webhook set to {WEBHOOK_URL}")
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+# --- Application Entry Point and Scheduler ---
+create_directories()
+
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(cleanup_old_cookies, 'interval', days=1)
+scheduler.start()
+
+bot.remove_webhook()
+time.sleep(0.5)
+bot.set_webhook(url=WEBHOOK_URL)
+logger.info(f"Webhook set to {WEBHOOK_URL}")
