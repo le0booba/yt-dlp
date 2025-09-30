@@ -1,11 +1,5 @@
-gunicorn
 Flask
+gunicorn
 pyTelegramBotAPI
 yt-dlp
-pycryptodomex
-certifi
-charset-normalizer
-idna
-requests
-urllib3
 APScheduler
