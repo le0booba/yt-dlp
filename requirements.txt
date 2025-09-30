@@ -3,3 +3,11 @@ Flask
 pyTelegramBotAPI
 yt-dlp
 pycryptodomex
+ffmpeg
+ffprobe
+certifi
+charset-normalizer
+idna
+python-dotenv
+requests
+urllib3
