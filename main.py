@@ -30,6 +30,15 @@ CB_FORMAT = "format:"
 CB_COOKIE_PROMPT = "cookie:"
 CB_COOKIE_ACTION = "use_cookie:"
 
+# --- New Download Options ---
+DOWNLOAD_OPTIONS = {
+    "max_quality": {"label": "🏆 Max Quality (Best Video+Audio)", "format": "bestvideo+bestaudio/best"},
+    "1080p_mp4": {"label": "🎞️ 1080p MP4 (Full HD)", "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"},
+    "720p_mp4": {"label": "🎬 720p MP4 (HD Ready)", "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"},
+    "best_audio_m4a": {"label": "🎵 Best Audio (M4A/Opus)", "format": "bestaudio/best"},
+    "best_audio_mp3": {"label": "🎵 Best Audio (MP3)", "format": "bestaudio/best", "postprocessing": "mp3"}
+}
+
 # --- Initialization ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,27 +85,21 @@ class VideoDownloader:
         self.last_update_time = 0
 
     def progress_hook(self, d):
-        if d["status"] != "downloading":
-            return
-        
+        if d["status"] != "downloading": return
         current_time = time.time()
         if current_time - self.last_update_time > 2:
-            status_text = (
-                f"⏳ Downloading...\n\n"
-                f"- Progress: {d.get('_percent_str', 'N/A').strip()}\n"
-                f"- Speed: {d.get('_speed_str', 'N/A').strip()}\n"
-                f"- ETA: {d.get('_eta_str', 'N/A').strip()}"
-            )
+            status_text = (f"⏳ Downloading...\n\n" f"- Progress: {d.get('_percent_str', 'N/A').strip()}\n" f"- Speed: {d.get('_speed_str', 'N/A').strip()}\n" f"- ETA: {d.get('_eta_str', 'N/A').strip()}")
             try:
                 bot.edit_message_text(status_text, self.chat_id, self.message_id)
                 self.last_update_time = current_time
             except apihelper.ApiTelegramException as e:
-                if "message is not modified" not in str(e):
-                    logger.warning(f"Progress update failed: {e}")
+                if "message is not modified" not in str(e): logger.warning(f"Progress update failed: {e}")
 
-    def download(self, url, format_choice, cookie_file=None):
+    def download(self, url, option_key, cookie_file=None):
+        option = DOWNLOAD_OPTIONS.get(option_key, DOWNLOAD_OPTIONS["max_quality"])
+        
         ydl_opts = {
-            "format": format_choice,
+            "format": option["format"],
             "outtmpl": os.path.join(DOWNLOAD_DIR, "%(title)s.%(ext)s"),
             "noplaylist": True,
             "progress_hooks": [self.progress_hook],
@@ -104,6 +107,13 @@ class VideoDownloader:
             "cookiefile": cookie_file if cookie_file and os.path.exists(cookie_file) else None,
         }
         
+        if option.get("postprocessing") == "mp3":
+            ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+
         filepath = None
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -111,14 +121,21 @@ class VideoDownloader:
                 filepath = ydl.prepare_filename(info)
                 bot.edit_message_text("✅ Download complete. Preparing to upload...", self.chat_id, self.message_id)
                 ydl.download([url])
+
+                if option.get("postprocessing") == "mp3":
+                    filepath = os.path.splitext(filepath)[0] + '.mp3'
             
             file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
             if file_size_mb > TELEGRAM_FILE_LIMIT_MB:
                 bot.send_message(self.chat_id, f"❌ Error: File is too large ({file_size_mb:.2f} MB).")
                 return
             
-            with open(filepath, "rb") as video_file:
-                bot.send_document(self.chat_id, document=video_file, caption=info.get('title', 'video'))
+            with open(filepath, "rb") as file_to_send:
+                caption = info.get('title', 'video')
+                if option.get("postprocessing") == "mp3":
+                    bot.send_audio(self.chat_id, audio=file_to_send, caption=caption)
+                else:
+                    bot.send_document(self.chat_id, document=file_to_send, caption=caption)
         except Exception as e:
             logger.error(f"Error during download: {e}")
             bot.send_message(self.chat_id, f"❌ An error occurred during download: {str(e)[:1000]}")
@@ -136,7 +153,7 @@ def initiate_download_process(call, cookie_path=None):
     msg = bot.edit_message_text(text, call.message.chat.id, call.message.message_id)
     
     downloader = VideoDownloader(chat_id=msg.chat.id, message_id=msg.message_id)
-    downloader.download(session['url'], session['format'], cookie_file=cookie_path)
+    downloader.download(session['url'], session['format_key'], cookie_file=cookie_path)
 
 # --- Web Server and Webhooks ---
 @app.route(WEBHOOK_URL_PATH, methods=['POST'])
@@ -160,12 +177,9 @@ def send_welcome(message):
 def handle_link(message):
     user_data[message.from_user.id] = {'url': message.text}
     markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🏆 Best (Video+Audio)", callback_data=f"{CB_FORMAT}best"),
-        types.InlineKeyboardButton("🎵 Audio Only (m4a)", callback_data=f"{CB_FORMAT}m4a/bestaudio/best"),
-        types.InlineKeyboardButton("🎞️ MP4 (Compatible)", callback_data=f"{CB_FORMAT}bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4")
-    )
-    bot.send_message(message.chat.id, "Please select a format:", reply_markup=markup)
+    for key, value in DOWNLOAD_OPTIONS.items():
+        markup.add(types.InlineKeyboardButton(value["label"], callback_data=f"{CB_FORMAT}{key}"))
+    bot.send_message(message.chat.id, "Please select a download option:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith(CB_FORMAT))
 def handle_format_selection(call):
@@ -174,12 +188,9 @@ def handle_format_selection(call):
         bot.answer_callback_query(call.id, "Session expired. Please send the link again.", show_alert=True)
         return
     
-    user_data[user_id]['format'] = call.data[len(CB_FORMAT):]
+    user_data[user_id]['format_key'] = call.data[len(CB_FORMAT):]
     markup = types.InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        types.InlineKeyboardButton("Yes", callback_data=f"{CB_COOKIE_PROMPT}yes"),
-        types.InlineKeyboardButton("No", callback_data=f"{CB_COOKIE_PROMPT}no")
-    )
+    markup.add(types.InlineKeyboardButton("Yes", callback_data=f"{CB_COOKIE_PROMPT}yes"), types.InlineKeyboardButton("No", callback_data=f"{CB_COOKIE_PROMPT}no"))
     bot.edit_message_text("Use cookies (for private videos)?", call.message.chat.id, call.message.message_id, reply_markup=markup)
     bot.answer_callback_query(call.id)
 
@@ -196,10 +207,7 @@ def handle_cookie_prompt(call):
         cookie_path = get_cookie_path(user_id)
         if os.path.exists(cookie_path):
             markup = types.InlineKeyboardMarkup(row_width=1)
-            markup.add(
-                types.InlineKeyboardButton("✅ Use Saved Cookie", callback_data=f"{CB_COOKIE_ACTION}saved"),
-                types.InlineKeyboardButton("📥 Upload New Cookie", callback_data=f"{CB_COOKIE_ACTION}upload")
-            )
+            markup.add(types.InlineKeyboardButton("✅ Use Saved Cookie", callback_data=f"{CB_COOKIE_ACTION}saved"), types.InlineKeyboardButton("📥 Upload New Cookie", callback_data=f"{CB_COOKIE_ACTION}upload"))
             bot.edit_message_text("You have a saved cookie file. What would you like to do?", call.message.chat.id, call.message.message_id, reply_markup=markup)
         else:
             bot.edit_message_text("Okay. Please send me your `cookies.txt` file.", call.message.chat.id, call.message.message_id)
